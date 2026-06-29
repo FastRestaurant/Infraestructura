@@ -1,0 +1,162 @@
+name: ${COMPOSE_PROJECT_NAME:-fastrestaurant}
+
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: fastrestaurant-sqlserver
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: "${MSSQL_PID:-Developer}"
+      MSSQL_SA_PASSWORD: "${MSSQL_SA_PASSWORD:-DemoOnly_123456789!}"
+    ports:
+      - "${SQLSERVER_PORT:-1433}:1433"
+    volumes:
+      - sqlserver-data:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$${MSSQL_SA_PASSWORD}\" -C -Q \"SELECT 1\" || /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P \"$${MSSQL_SA_PASSWORD}\" -Q \"SELECT 1\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  auth:
+    build:
+      context: ../MicroservicioAuth
+      dockerfile: ../Infraestructura/dockerfiles/auth.Dockerfile
+    container_name: fastrestaurant-auth
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: "${ASPNETCORE_ENVIRONMENT:-Development}"
+      ASPNETCORE_URLS: http://+:8080
+      DOTNET_RUNNING_IN_CONTAINER: "true"
+      ConnectionStrings__DefaultConnection: "Server=sqlserver,1433;Database=${AUTH_DB:-AuthMSDb};User Id=sa;Password=${MSSQL_SA_PASSWORD:-DemoOnly_123456789!};TrustServerCertificate=True;Encrypt=False"
+      Jwt__Key: "${JWT_KEY:-demo-only-jwt-key-change-me-1234567890}"
+      Jwt__Issuer: "${JWT_ISSUER:-AuthMS}"
+      Jwt__Audience: "${JWT_AUDIENCE:-Microservices}"
+    ports:
+      - "${AUTH_PORT:-5155}:8080"
+
+  menu:
+    build:
+      context: ../MenuService
+      dockerfile: ../Infraestructura/dockerfiles/menu.Dockerfile
+    container_name: fastrestaurant-menu
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: "${ASPNETCORE_ENVIRONMENT:-Development}"
+      ASPNETCORE_URLS: http://+:8080
+      DOTNET_RUNNING_IN_CONTAINER: "true"
+      ConnectionStrings__DefaultConnection: "Server=sqlserver,1433;Database=${MENU_DB:-MenuServiceDb};User Id=sa;Password=${MSSQL_SA_PASSWORD:-DemoOnly_123456789!};TrustServerCertificate=True;Encrypt=False"
+      Jwt__Key: "${JWT_KEY:-demo-only-jwt-key-change-me-1234567890}"
+      Jwt__Issuer: "${JWT_ISSUER:-AuthMS}"
+      Jwt__Audience: "${JWT_AUDIENCE:-Microservices}"
+      Cloudinary__CloudName: "${CLOUDINARY_CLOUD_NAME:-}"
+      Cloudinary__ApiKey: "${CLOUDINARY_API_KEY:-}"
+      Cloudinary__ApiSecret: "${CLOUDINARY_API_SECRET:-}"
+      Cloudinary__Folder: "${CLOUDINARY_FOLDER:-fastrestaurant}"
+    ports:
+      - "${MENU_PORT:-5127}:8080"
+
+  stock:
+    build:
+      context: ../MicroservicioStock
+      dockerfile: ../Infraestructura/dockerfiles/stock.Dockerfile
+    container_name: fastrestaurant-stock
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: "${ASPNETCORE_ENVIRONMENT:-Development}"
+      ASPNETCORE_URLS: http://+:8080
+      DOTNET_RUNNING_IN_CONTAINER: "true"
+      ConnectionStrings__DefaultConnection: "Server=sqlserver,1433;Database=${STOCK_DB:-MicroservicioStock};User Id=sa;Password=${MSSQL_SA_PASSWORD:-DemoOnly_123456789!};TrustServerCertificate=True;Encrypt=False"
+      Jwt__Key: "${JWT_KEY:-demo-only-jwt-key-change-me-1234567890}"
+      Jwt__Issuer: "${JWT_ISSUER:-AuthMS}"
+      Jwt__Audience: "${JWT_AUDIENCE:-Microservices}"
+    ports:
+      - "${STOCK_PORT:-5093}:8080"
+
+  orders:
+    build:
+      context: ../MicroservicioOrder
+      dockerfile: ../Infraestructura/dockerfiles/order.Dockerfile
+    container_name: fastrestaurant-orders
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+      auth:
+        condition: service_started
+      menu:
+        condition: service_started
+      stock:
+        condition: service_started
+      kitchen:
+        condition: service_started
+    environment:
+      ASPNETCORE_ENVIRONMENT: "${ASPNETCORE_ENVIRONMENT:-Development}"
+      ASPNETCORE_URLS: http://+:8080
+      DOTNET_RUNNING_IN_CONTAINER: "true"
+      ConnectionStrings__DefaultConnection: "Server=sqlserver,1433;Database=${ORDERS_DB:-OrderServiceDB};User Id=sa;Password=${MSSQL_SA_PASSWORD:-DemoOnly_123456789!};TrustServerCertificate=True;Encrypt=False"
+      Jwt__Key: "${JWT_KEY:-demo-only-jwt-key-change-me-1234567890}"
+      Jwt__Issuer: "${JWT_ISSUER:-AuthMS}"
+      Jwt__Audience: "${JWT_AUDIENCE:-Microservices}"
+      ExternalServices__Users__BaseUrl: http://auth:8080/
+      ExternalServices__MenuCatalog__BaseUrl: http://menu:8080/
+      ExternalServices__Stock__BaseUrl: http://stock:8080/
+      ExternalServices__Kitchen__BaseUrl: http://kitchen:8080/
+      Cors__AllowedOrigins__0: "http://localhost:${FRONTEND_PORT:-5053}"
+    ports:
+      - "${ORDERS_PORT:-5231}:8080"
+
+  kitchen:
+    build:
+      context: ../MicroservicioKitchen
+      dockerfile: ../Infraestructura/dockerfiles/kitchen.Dockerfile
+    container_name: fastrestaurant-kitchen
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: "${ASPNETCORE_ENVIRONMENT:-Development}"
+      ASPNETCORE_URLS: http://+:8080
+      DOTNET_RUNNING_IN_CONTAINER: "true"
+      ConnectionStrings__DefaultConnection: "Server=sqlserver,1433;Database=${KITCHEN_DB:-FastRestaurant_Kitchen};User Id=sa;Password=${MSSQL_SA_PASSWORD:-DemoOnly_123456789!};TrustServerCertificate=True;Encrypt=False"
+      Jwt__Key: "${JWT_KEY:-demo-only-jwt-key-change-me-1234567890}"
+      Jwt__Issuer: "${JWT_ISSUER:-AuthMS}"
+      Jwt__Audience: "${JWT_AUDIENCE:-Microservices}"
+      ExternalServices__Orders__BaseUrl: http://orders:8080/
+    ports:
+      - "${KITCHEN_PORT:-5207}:8080"
+
+  frontend:
+    build:
+      context: ../Frontend
+      dockerfile: ../Infraestructura/dockerfiles/frontend.Dockerfile
+    container_name: fastrestaurant-frontend
+    depends_on:
+      auth:
+        condition: service_started
+      menu:
+        condition: service_started
+      orders:
+        condition: service_started
+      stock:
+        condition: service_started
+    environment:
+      ASPNETCORE_ENVIRONMENT: "${ASPNETCORE_ENVIRONMENT:-Development}"
+      ASPNETCORE_URLS: http://+:8080
+      DOTNET_RUNNING_IN_CONTAINER: "true"
+      ExternalServices__Auth__BaseUrl: http://auth:8080/
+      ExternalServices__Menu__BaseUrl: http://menu:8080/
+      ExternalServices__Orders__BaseUrl: http://orders:8080/
+      ExternalServices__Kitchen__BaseUrl: http://kitchen:8080/
+      ExternalServices__Stock__BaseUrl: http://stock:8080/
+    ports:
+      - "${FRONTEND_PORT:-5053}:8080"
+
+volumes:
+  sqlserver-data:
