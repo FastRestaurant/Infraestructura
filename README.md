@@ -50,7 +50,6 @@ SQL       localhost,1433
 admin      / Admin123!
 Ncamarero  / Camarero123!
 Jcocinero  / Cocinero123!
-Gcajero    / Cajero123!
 ```
 
 ## Detener
